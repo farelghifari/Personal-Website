@@ -2,66 +2,63 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Resend } from 'resend'
 
+export const dynamic = 'force-dynamic'
+
 const emailSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100),
-  email: z.string().email('Invalid email address'),
-  subject: z.string().min(1, 'Subject is required').max(200),
-  message: z.string().min(1, 'Message is required').max(5000),
+  name: z.string().min(1).max(100),
+  email: z.string().email(),
+  subject: z.string().min(1).max(200),
+  message: z.string().min(1).max(5000),
 })
 
 type EmailData = z.infer<typeof emailSchema>
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-
 export async function POST(request: NextRequest) {
   try {
-    // Parse request body
-    const body = await request.json()
+    if (!process.env.RESEND_API_KEY) {
+      return NextResponse.json(
+        { error: 'RESEND_API_KEY is not set' },
+        { status: 500 }
+      )
+    }
 
-    // Validate data
+    const resend = new Resend(process.env.RESEND_API_KEY)
+
+    const body = await request.json()
     const validatedData: EmailData = emailSchema.parse(body)
 
-    // Get contact email from env or use fallback
-    const contactEmail = process.env.CONTACT_EMAIL || 'default@example.com'
+    const contactEmail =
+      process.env.CONTACT_EMAIL || 'default@example.com'
 
-    // Send email using Resend
-    const data = await resend.emails.send({
-      from: 'Portfolio Contact <onboarding@resend.dev>', // Replace with your domain
+    const { data, error } = await resend.emails.send({
+      from: 'Portfolio Contact <onboarding@resend.dev>',
       to: contactEmail,
       subject: `New Contact Form Submission: ${validatedData.subject}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">New Message from Your Portfolio</h2>
-          <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Name:</strong> ${validatedData.name}</p>
-            <p><strong>Email:</strong> <a href="mailto:${validatedData.email}">${validatedData.email}</a></p>
-            <p><strong>Subject:</strong> ${validatedData.subject}</p>
-            <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
-            <p><strong>Message:</strong></p>
-            <p style="white-space: pre-wrap; color: #555;">${validatedData.message}</p>
-          </div>
-          <footer style="color: #999; font-size: 12px; margin-top: 20px;">
-            <p>This message was sent through your portfolio contact form.</p>
-          </footer>
+          <h2>New Message from Your Portfolio</h2>
+          <p><strong>Name:</strong> ${validatedData.name}</p>
+          <p><strong>Email:</strong> ${validatedData.email}</p>
+          <p><strong>Subject:</strong> ${validatedData.subject}</p>
+          <hr />
+          <p>${validatedData.message}</p>
         </div>
       `,
     })
 
-    // Check if email was sent successfully
-    if (data.error) {
-      console.error('Resend error:', data.error)
+    if (error) {
+      console.error('Resend error:', error)
       return NextResponse.json(
-        { error: 'Failed to send email. Please try again later.' },
+        { error: 'Failed to send email' },
         { status: 500 }
       )
     }
 
     return NextResponse.json(
-      { message: 'Email sent successfully', id: data.data?.id },
+      { message: 'Email sent', id: data?.id },
       { status: 200 }
     )
   } catch (error) {
-    // Handle validation errors
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.errors },
@@ -69,10 +66,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Handle other errors
-    console.error('Email send error:', error)
+    console.error('Unexpected error:', error)
     return NextResponse.json(
-      { error: 'An unexpected error occurred. Please try again later.' },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }
